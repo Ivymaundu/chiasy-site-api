@@ -1,5 +1,13 @@
 from pydantic import BaseModel
+from enum import Enum
+from typing import Optional
 
+
+class Tags(Enum):
+    PRODUCTS = "Products"
+    CUSTOMERS = "Customers"
+    PRODUCT_IMAGE ="product_image"
+    LOGIN="login"
 
 class ProductRequest(BaseModel):
     product_name: str
@@ -27,6 +35,10 @@ class CustomerResponse(BaseModel):
     user_email: str
     user_contact: str
 
-    class Config:
-        orm_mode = True
+class LoginRequest(BaseModel):
+    user_name : str
+    user_password : str
+
+class TokenData(BaseModel):
+    username: Optional[str] =  None
 
