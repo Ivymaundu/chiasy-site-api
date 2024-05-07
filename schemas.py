@@ -42,3 +42,7 @@ class LoginRequest(BaseModel):
 class TokenData(BaseModel):
     username: Optional[str] =  None
 
+
+class ImageResponse(BaseModel):
+    filename: str
+    content_type: str
