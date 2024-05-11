@@ -1,13 +1,14 @@
 from pydantic import BaseModel
 from enum import Enum
 from typing import Optional
-
+from datetime import datetime
 
 class Tags(Enum):
     PRODUCTS = "Products"
     CUSTOMERS = "Customers"
     PRODUCT_IMAGE ="product_image"
     LOGIN="login"
+    PURCHASE="purchase"
 
 class ProductRequest(BaseModel):
     product_name: str
@@ -21,6 +22,16 @@ class ProductResponse(BaseModel):
     product_name: str
     product_price: float
     product_quantity: int
+    image_url: str
+    
+class SaleRequest(BaseModel):
+    pid: int
+    quantity: int
+    created_at: Optional[datetime]
+    user_id: int
+
+class SaleResponse(SaleRequest):
+    id: int
     
 
 class CustomerCreate(BaseModel):

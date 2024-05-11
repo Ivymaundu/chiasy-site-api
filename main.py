@@ -1,8 +1,9 @@
 from fastapi import FastAPI,Depends,HTTPException,UploadFile,File,Request,status
 from starlette.responses import FileResponse
-from dbservice import Base,engine,SessionLocal,Product,Customer
+from dbservice import Base,engine,SessionLocal,Product,Customer,Sale
 from sqlalchemy.orm import Session
-from schemas import ProductRequest,ProductResponse,CustomerResponse,CustomerCreate,Tags,LoginRequest,ImageResponse
+from schemas import ProductRequest,ProductResponse,CustomerResponse,CustomerCreate,Tags,\
+LoginRequest,ImageResponse,SaleRequest,SaleResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os,base64,tempfile
@@ -19,7 +20,6 @@ from fastapi.responses import StreamingResponse
 app=FastAPI()
 
 Base.metadata.create_all(bind=engine)
-
 
 origins = [
     "http://localhost",
@@ -58,47 +58,6 @@ UPLOAD_DIRECTORY = "static/images"
 # Create the directory if it doesn't exist
 os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
 
-# @app.post("/upload-image" , tags=[Tags.PRODUCT_IMAGE.value])
-# async def upload_image(image: UploadFile = File(...)):
-#     static_folder = "static"
-#     if not os.path.exists(static_folder):
-#         os.makedirs(static_folder)
-
-#     # Read image contents
-#     image_contents = await image.read()
-
-#     # Encode image to Base64
-#     encoded_image = base64.b64encode(image_contents).decode("utf-8")
-
-#     # Save encoded image to static folder
-#     save_path = os.path.join(static_folder, image.filename + ".txt")  
-#     with open(save_path, "wb") as save_file:
-#         save_file.write(encoded_image.encode())
-
-#     return {"message": "Image uploaded and saved successfully"}
-
-# @app.get("/images_with_txt", tags=[Tags.PRODUCT_IMAGE.value])
-
-# async def get_all_images():
-#     static_folder = "static"
-#     image_files = os.listdir(static_folder)
-#     image_data = []
-
-#     for filename in image_files:
-#         if filename.endswith(".txt"):
-#             image_path = os.path.join(static_folder, filename)
-
-#             # Read Base64 encoded string from file
-#             with open(image_path, "rb") as image_file:
-#                 encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
-
-#             # Remove ".txt" extension from filename
-#             filename_without_extension = os.path.splitext(filename)[0]
-
-#             # Append filename (without extension) and encoded image data to the list
-#             image_data.append({"filename": filename_without_extension, "base64_data": encoded_string})
-
-#     return image_data
 
 @app.post("/upload/", tags=[Tags.PRODUCT_IMAGE.value])
 async def upload_image(file: UploadFile = File(...)):
@@ -158,9 +117,27 @@ def add_products(product: ProductRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
     
 @app.get('/products', response_model=list[ProductResponse], tags=[Tags.PRODUCTS.value])
-def fetch_products(db: Session = Depends(get_db)):
-    products = db.query(Product).all()
-    return products
+def fetch_products(request: Request,db: Session = Depends(get_db)):
+    try:
+        products = db.query(Product).all()
+        print("products.......",products)
+        products_with_images = []
+        for product in products:
+            image_filename = f"product_{product.id}.jpg" 
+            base_url = str(request.base_url)
+            image_url =  f"{base_url.rstrip('/')}/images/{image_filename}"
+            print("kwanzaaaaa ...............",image_url)
+            products_with_images.append(ProductResponse(
+                id=product.id,
+                product_name=product.product_name,
+                product_quantity=product.product_quantity,
+                product_price=product.product_price,
+                image_url=image_url
+            ))
+        return products_with_images
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 # fetch by product id
 @app.get('/products/{id}', response_model=ProductResponse ,tags=[Tags.PRODUCTS.value])
@@ -170,22 +147,48 @@ def fetch_single_products(id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Product does not exist")
     return product
 
-@app.put("/products/{product_id}", tags=[Tags.PRODUCTS.value])
-def update_order_item(product_update: ProductRequest,product_id: int,db: Session = Depends(get_db)):
+@app.put('/purchase/{product_id}', tags=[Tags.PURCHASE.value])
+def purchase_product(product_id: int, quantity: int, db: Session = Depends(get_db)):
     product = db.query(Product).filter(Product.id == product_id).first()
+
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    
-    if product_update.product_name is not None:
-        product.product_name = product_update.product_name
-    if product_update.product_price is not None:
-        product.product_price = product_update.product_price
-    if product_update.product_quantity is not None:
-        product.product_quantity = product_update.product_quantity
+
+    if product.product_quantity == 0:
+        return {"message": "Product is out of stock"}
+
+    if quantity > product.product_quantity:
+        raise HTTPException(status_code=400, detail="Not enough stock available")
+
+    new_quantity = product.product_quantity - quantity
+    if new_quantity == 0:
+        product.product_quantity = new_quantity
+        product.status = "out of stock"
+    else:
+        product.product_quantity = new_quantity
 
     db.commit()
+    return {"message": "Purchase successful"},product
+#sales get and post
 
-    return {"message": "Product updated successfully"}
+@app.post('/sales')
+def add_sale(sale: SaleRequest, db: Session = Depends(get_db)):
+    try:
+        new_sale=Sale(pid=sale.pid,quantity=sale.quantity,created_at=sale.created_at,user_id=sale.user_id)
+        db.add(new_sale)
+        db.commit()
+        db.refresh(new_sale)
+        return new_sale
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get('/sales',response_model= list[SaleResponse])
+def fetch_sales(db: Session = Depends(get_db)):
+    sales=db.query(Sale).all()
+    return sales
+
 
 #password hashing using bcrypt
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -248,3 +251,33 @@ def login_user(login_details: Annotated[OAuth2PasswordRequestForm, Depends()], d
     
     access_token = create_access_token(data={"sub": user.user_name})
     return {"access_token":access_token, "token_type":"bearer"}
+
+# def dashboard(current_user: CustomerResponse = Depends(get_current_user), db: Session = Depends(get_db)):
+#     customer = Customer.query.filter_by(user_name=current_user).first()
+#     if not customer:
+#         return {"message": "User not found"}, 404
+
+#     sales_per_day = db.query(
+#         func.date(Sale.created_at).label('date'),
+#         # calculate the total number of sales per day
+#         func.sum(Sale.quantity * Product.price).label('total_sales')
+#     ).join(Product).group_by(
+#         func.date(Sale.created_at)
+#     ).all()
+
+#     #  to JSON format
+#     sales_data = [{'date': str(day), 'total_sales': sales}
+#                   for day, sales in sales_per_day]
+#     #  sales per product
+#     sales_per_product = db.session.query(
+#         Product.name,
+#         func.sum(Sale.quantity*Product.price).label('sales_product')
+#     ).join(Sale).group_by(
+#         Product.name
+#     ).all()
+
+#     # to JSON format
+#     salesproduct_data = [{'name': name, 'sales_product': sales_product}
+#                          for name, sales_product in sales_per_product]
+
+#     return jsonify({'sales_data': sales_data, 'salesproduct_data': salesproduct_data})

@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine,Column,Integer,String,ForeignKey,Float,DateTime
+from sqlalchemy import create_engine,Column,Integer,String,ForeignKey,Float,DateTime,MetaData
 from sqlalchemy.orm import sessionmaker,relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
@@ -14,7 +14,6 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-
 class Product(Base):
     __tablename__= 'products'
 
@@ -25,6 +24,21 @@ class Product(Base):
 
     #relationship with order items
     order_items = relationship('OrderItem', backref='product')
+    sales = relationship('Sale', backref='product')
+
+class Sale(Base):
+    __tablename__="sales"
+
+    id=Column(Integer, primary_key=True)
+    pid=Column(Integer, ForeignKey('products.id'), nullable=False)
+    quantity=Column(Integer, nullable=False)
+    created_at=Column(DateTime, default=datetime.utcnow, nullable=False)
+    customer_id = Column(Integer, ForeignKey('customers.id'), nullable=False)
+
+    # Relationship with Product and User
+    # product = relationship('Product', backref='sale')
+    customer = relationship('Customer', backref='sale')
+
 
 
 class Customer(Base):
@@ -35,10 +49,12 @@ class Customer(Base):
     user_password=Column(String(255),nullable=False)
     user_email=Column(String(100),nullable=False)
     user_contact=Column(String(15),nullable=False)
+    sales = relationship('Sale', back_populates='customer')
 
     #relationship with orders
     orders = relationship('Order', backref='customer')
     
+
 
 class Order(Base):
     __tablename__="orders"
