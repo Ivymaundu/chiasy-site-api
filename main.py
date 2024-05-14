@@ -1,4 +1,5 @@
 from fastapi import FastAPI,Depends,HTTPException,UploadFile,File,Request,status
+from sqlalchemy import Date, cast, func
 from starlette.responses import FileResponse
 from dbservice import Base,engine,SessionLocal,Product,Customer,Sale
 from sqlalchemy.orm import Session
@@ -174,7 +175,7 @@ def purchase_product(product_id: int, quantity: int, db: Session = Depends(get_d
 @app.post('/sales')
 def add_sale(sale: SaleRequest, db: Session = Depends(get_db)):
     try:
-        new_sale=Sale(pid=sale.pid,quantity=sale.quantity,created_at=sale.created_at,user_id=sale.user_id)
+        new_sale=Sale(pid=sale.pid,quantity=sale.quantity,created_at=sale.created_at,customer_id=sale.customer_id)
         db.add(new_sale)
         db.commit()
         db.refresh(new_sale)
@@ -197,7 +198,7 @@ def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
 # customers....(post,get ,delete)
-@app.post("/customers" ,tags=[Tags.CUSTOMERS.value])
+@app.post("/register" ,tags=[Tags.CUSTOMERS.value])
 async def create_customer(add_customer: CustomerCreate,  db: Session = Depends(get_db)):
 
     hashedpasword=pwd_context.hash(add_customer.user_password)
@@ -215,16 +216,17 @@ async def create_customer(add_customer: CustomerCreate,  db: Session = Depends(g
     return new_customer
 
 
-@app.get("/customers", response_model= list[CustomerResponse], tags=[Tags.CUSTOMERS.value])
-def get_customer(db: Session = Depends(get_db),current_user: CustomerResponse = 
-                 Depends(get_current_user)):
+@app.get("/customer", response_model= list[CustomerResponse], tags=[Tags.CUSTOMERS.value])
+def get_customer(db: Session = Depends(get_db),
+                #  current_user: CustomerResponse = Depends(get_current_user)
+                 ):
  
     registered_customer = db.query(Customer).all()
     if registered_customer is None:
         raise HTTPException(status_code=404, detail="Customer not found")
     return registered_customer
 
-@app.delete("/customers/{customer_id}", tags=[Tags.CUSTOMERS.value])
+@app.delete("/customer/{customer_id}", tags=[Tags.CUSTOMERS.value])
 def delete_customer(customer_id: int, db: Session = Depends(get_db)):
     registered_customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not registered_customer:
@@ -238,11 +240,11 @@ def delete_customer(customer_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 #login
-@app.post('/login', tags=[Tags.LOGIN.value])
+@app.post('/login' ,tags=[Tags.LOGIN.value])
 def login_user(login_details: Annotated[OAuth2PasswordRequestForm, Depends()], db: Session = Depends(get_db)):
 
     user=db.query(Customer).filter(Customer.user_name==login_details.username).first()
-    
+    print("loginn.......",login_details)
     if not user:
         raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail =f"Invalid Credentials")
     if not verify_password(login_details.password, user.user_password):
@@ -252,32 +254,35 @@ def login_user(login_details: Annotated[OAuth2PasswordRequestForm, Depends()], d
     access_token = create_access_token(data={"sub": user.user_name})
     return {"access_token":access_token, "token_type":"bearer"}
 
-# def dashboard(current_user: CustomerResponse = Depends(get_current_user), db: Session = Depends(get_db)):
-#     customer = Customer.query.filter_by(user_name=current_user).first()
-#     if not customer:
-#         return {"message": "User not found"}, 404
+@app.get('/dashboard')
+def dashboard(  db: Session = Depends(get_db)):
+    # customer = Customer.query.filter_by(user_name=user_name).first()
+    # if not customer:
+    #     return {"message": "User not found"}, 404
 
-#     sales_per_day = db.query(
-#         func.date(Sale.created_at).label('date'),
-#         # calculate the total number of sales per day
-#         func.sum(Sale.quantity * Product.price).label('total_sales')
-#     ).join(Product).group_by(
-#         func.date(Sale.created_at)
-#     ).all()
+    sales_per_day = db.query(
+        cast(func.date_trunc('day', Sale.created_at), Date).label('date'),
+        # calculate the total number of sales per day
+        func.sum(Sale.quantity * Product.product_price).label('total_sales')
+    ).join(Product).group_by(
+        cast(func.date_trunc('day', Sale.created_at), Date)
+    
 
-#     #  to JSON format
-#     sales_data = [{'date': str(day), 'total_sales': sales}
-#                   for day, sales in sales_per_day]
-#     #  sales per product
-#     sales_per_product = db.session.query(
-#         Product.name,
-#         func.sum(Sale.quantity*Product.price).label('sales_product')
-#     ).join(Sale).group_by(
-#         Product.name
-#     ).all()
+    ).all()
 
-#     # to JSON format
-#     salesproduct_data = [{'name': name, 'sales_product': sales_product}
-#                          for name, sales_product in sales_per_product]
+    #  to JSON format
+    sales_data = [{'date': str(day), 'total_sales': sales}
+                  for day, sales in sales_per_day]
+    #  sales per product
+    sales_per_product = db.query(
+        Product.product_name,
+        func.sum(Sale.quantity*Product.product_price).label('sales_product')
+    ).join(Sale).group_by(
+        Product.product_name
+    ).all()
+    
+    # to JSON format
+    salesproduct_data = [{'name': name, 'sales_product': sales_product}
+                         for name, sales_product in sales_per_product]
 
-#     return jsonify({'sales_data': sales_data, 'salesproduct_data': salesproduct_data})
+    return {'sales_data': sales_data, 'salesproduct_data': salesproduct_data}

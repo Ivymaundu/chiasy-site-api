@@ -28,7 +28,7 @@ class SaleRequest(BaseModel):
     pid: int
     quantity: int
     created_at: Optional[datetime]
-    user_id: int
+    customer_id: int
 
 class SaleResponse(SaleRequest):
     id: int
